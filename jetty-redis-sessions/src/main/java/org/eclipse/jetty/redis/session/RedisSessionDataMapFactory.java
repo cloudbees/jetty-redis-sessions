@@ -22,6 +22,7 @@ import java.net.URI;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocketFactory;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.eclipse.jetty.server.session.SessionDataMap;
 import org.eclipse.jetty.server.session.SessionDataMapFactory;
 import redis.clients.jedis.Protocol;
@@ -43,9 +44,9 @@ public class RedisSessionDataMapFactory implements SessionDataMapFactory {
     protected SSLSocketFactory _sslSocketFactory;
     protected SSLParameters _sslParameters;
     protected HostnameVerifier _hostnameVerifier;
-    protected int _maxIdle;
-    protected int _minIdle;
-    protected int _maxTotal;
+    protected int _maxIdle = GenericObjectPoolConfig.DEFAULT_MAX_IDLE;
+    protected int _minIdle = GenericObjectPoolConfig.DEFAULT_MIN_IDLE;
+    protected int _maxTotal = GenericObjectPoolConfig.DEFAULT_MAX_TOTAL;
     protected String _keyPrefix;
 
     public int getExpirySec() {
