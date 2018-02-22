@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
+
+<Configure id="Server" class="org.eclipse.jetty.server.Server">
+  <New id="sessionDataMapFactory" class="org.eclipse.jetty.redis.session.RedisSessionDataMapFactory">
+    <Set name="host">
+      <Property name="jetty.session.redis.host">
+        <Default>
+          <Env name="REDIS_PORT_6379_TCP_ADDR" default="localhost"/>
+        </Default>
+      </Property>
+    </Set>
+    <Set name="port">
+      <Property name="jetty.session.redis.port">
+        <Default>
+          <Env name="REDIS_PORT_6739_TCP_PORT" default="6379"/>
+        </Default>
+      </Property>
+    </Set>
+    <Set name="database">
+      <Property name="jetty.session.redis.database" default="0"/>
+    </Set>
+    <Set name="expirySec">
+      <Property name="jetty.session.redis.expirySec" default="0"/>
+    </Set>
+    <Set name="keyPrefix">
+      <Property name="jetty.session.redis.keyPrefix" default="session:"/>
+    </Set>
+  </New>
+</Configure>

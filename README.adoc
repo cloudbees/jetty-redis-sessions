@@ -1,0 +1,9 @@
+== Jetty Redis Sessions
+
+A Jetty 9.4.x SessionDataMap implementation that uses Redis as the back-end.
+
+Heavily plagiarised from https://github.com/eclipse/jetty.project/tree/e46459e8a8/jetty-memcached/jetty-memcached-sessions[jetty-memcached-sessions].
+
+Also plagiarised the session serialization code from Apache Licensed https://github.com/killme2008/xmemcached/tree/90dd456f29/src/main/java/net/rubyeye/xmemcached/transcoders[xmemcached]
+
+Uses MIT licensed Jedis as the client for Redis.
