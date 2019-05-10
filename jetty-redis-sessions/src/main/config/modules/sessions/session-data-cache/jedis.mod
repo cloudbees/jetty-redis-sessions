@@ -8,11 +8,12 @@ session
 session-store
 
 [files]
-maven://redis.clients/jedis/2.9.0|lib/jedis/jedis-2.9.0.jar
+maven://redis.clients/jedis/${jedis.version}|lib/jedis/jedis-${jedis.version}.jar
+maven://com.cloudbees.jetty.redis/jetty-redis-sessions/${redissessions.version}|lib/jetty-redis-sessions-${redissessions.version}.jar
 
 [lib]
-lib/jetty-redis-sessions-${jetty.version}.jar
-lib/jedis/*.jar
+lib/jetty-redis-sessions-${redissessions.version}.jar
+lib/jedis/jedis-${jedis.version}.jar
 
 [license]
 Based on Jetty Memcached Sessions hosted in the Jetty project and released under dual license:
@@ -52,3 +53,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 [xml]
 etc/sessions/session-data-cache/jedis.xml
+
+[ini]
+redissessions.version=@project.version@
+jedis.version?=@jedis.version@

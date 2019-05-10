@@ -7,6 +7,7 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.InflaterInputStream;
 
+import org.eclipse.jetty.util.ClassLoadingObjectInputStream;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 
@@ -15,25 +16,6 @@ import org.eclipse.jetty.util.log.Logger;
  * compressed data.
  */
 public abstract class BaseSerializingTranscoder {
-
-    private static final class XmcObjectInputStream extends ObjectInputStream {
-        private XmcObjectInputStream(InputStream in) throws IOException {
-            super(in);
-        }
-
-        @Override
-        protected Class<?> resolveClass(ObjectStreamClass desc)
-                throws IOException, ClassNotFoundException {
-            try {
-                // When class is not found,try to load it from context class
-                // loader.
-                return super.resolveClass(desc);
-            } catch (ClassNotFoundException e) {
-                return Thread.currentThread().getContextClassLoader()
-                        .loadClass(desc.getName());
-            }
-        }
-    }
 
     /**
      * Default compression threshold value.
@@ -45,8 +27,7 @@ public abstract class BaseSerializingTranscoder {
     protected int compressionThreshold = DEFAULT_COMPRESSION_THRESHOLD;
     protected String charset = DEFAULT_CHARSET;
     protected CompressionMode compressMode = CompressionMode.GZIP;
-    protected static final Logger log = Log
-            .getLogger(BaseSerializingTranscoder.class);
+    protected static final Logger log = Log.getLogger(BaseSerializingTranscoder.class);
 
     /**
      * Set the compression threshold to the given number of bytes. This
@@ -111,7 +92,7 @@ public abstract class BaseSerializingTranscoder {
         try {
             if (in != null) {
                 bis = new ByteArrayInputStream(in);
-                is = new XmcObjectInputStream(bis);
+                is = new ClassLoadingObjectInputStream(bis);
                 rv = is.readObject();
 
             }

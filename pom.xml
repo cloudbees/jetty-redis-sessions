@@ -31,6 +31,7 @@
     <jsp.version>8.5.5</jsp.version>
     <!-- default values are unsupported, but required to be defined for reactor sanity reasons -->
     <alpn.version>undefined</alpn.version>
+    <jedis.version>2.9.0</jedis.version>
   </properties>
 
   <licenses>
