@@ -21,6 +21,7 @@ package org.eclipse.jetty.redis.session;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.function.Function;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -39,11 +40,11 @@ import org.eclipse.jetty.server.session.SessionData;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * TestRedisSessions
@@ -110,6 +111,11 @@ public class TestRedisSessions {
         @Override
         public Session doPutIfAbsent(String id, Session session) {
             return null;
+        }
+
+        @Override
+        protected Session doComputeIfAbsent(String s, Function<String, Session> function) {
+            return function.apply(s);
         }
 
         @Override
