@@ -24,6 +24,7 @@ import java.io.InputStream;
 import java.io.ObjectOutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 import javax.net.ssl.HostnameVerifier;
@@ -51,6 +52,7 @@ import redis.clients.util.JedisURIHelper;
 public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDataMap {
     public static final String DEFAULT_HOST = "localhost";
     public static final String DEFAULT_PORT = "6379";
+    protected SessionContext _context; //context associated with this session data map
     protected JedisPool _pool;
     protected int _expirySec = 0;
     protected String _host;
@@ -259,12 +261,16 @@ public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDat
      */
     @Override
     public void initialize(SessionContext context) {
+        if (isStarted()) {
+            throw new IllegalStateException("Context set after RedisSessionDataMap started");
+        }
         GenericObjectPoolConfig poolConfig = new GenericObjectPoolConfig();
         poolConfig.setMaxIdle(_maxIdle);
         poolConfig.setMinIdle(_minIdle);
         poolConfig.setMaxTotal(_maxTotal);
         _pool = new JedisPool(poolConfig, _host, _port, _connectionTimeout, _soTimeout,
                 _password, _database, _clientName, _ssl, _sslSocketFactory, _sslParameters, _hostnameVerifier);
+        _context = context;
     }
 
     /**
@@ -272,26 +278,46 @@ public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDat
      */
     @Override
     public SessionData load(String id) throws Exception {
-        byte[] bytes;
-        try (Jedis jedis = _pool.getResource()) {
-            bytes = jedis.get(keyAsBytes(id));
+        if (!isStarted()) {
+            throw new IllegalStateException("Not started");
         }
-        if (bytes == null || bytes.length < 4) {
-            return null;
-        }
-        try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
-             InputStream in = _compression ? new InflaterInputStream(bais) : null;
-             ClassLoadingObjectInputStream ois = new ClassLoadingObjectInputStream(_compression ? in : bais);){
-            String contextPath = ois.readUTF();
-            String vhost = ois.readUTF();
-            long created = ois.readLong();
-            long accessed = ois.readLong();
-            long lastAccessed = ois.readLong();
-            long maxIdle = ois.readLong();
-            SessionData data = new SessionData(id, contextPath, vhost, created, accessed, lastAccessed, maxIdle);
-            SessionData.deserializeAttributes(data, ois);
-            return data;
-        }
+        final AtomicReference<SessionData> reference = new AtomicReference<SessionData>();
+        final AtomicReference<Exception> exception = new AtomicReference<Exception>();
+
+        Runnable r = () ->
+        {
+            try {
+                byte[] bytes;
+                try (Jedis jedis = _pool.getResource()) {
+                    bytes = jedis.get(keyAsBytes(id));
+                }
+                if (bytes == null || bytes.length < 4) {
+                    reference.set(null);
+                    return;
+                }
+                try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+                     InputStream in = _compression ? new InflaterInputStream(bais) : null;
+                     ClassLoadingObjectInputStream ois = new ClassLoadingObjectInputStream(_compression ? in : bais);) {
+                    long created = ois.readLong();
+                    long accessed = ois.readLong();
+                    long lastAccessed = ois.readLong();
+                    long maxIdle = ois.readLong();
+                    SessionData data =
+                            new SessionData(id, _context.getCanonicalContextPath(), _context.getVhost(), created,
+                                    accessed, lastAccessed, maxIdle);
+                    SessionData.deserializeAttributes(data, ois);
+                    reference.set(data);
+                }
+            } catch (Exception e) {
+                exception.set(e);
+            }
+        };
+
+        _context.run(r);
+        if (exception.get() != null)
+            throw exception.get();
+
+        return reference.get();
     }
 
     private byte[] keyAsBytes(String id) {
@@ -308,25 +334,42 @@ public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDat
      */
     @Override
     public void store(String id, SessionData data) throws Exception {
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            try (DeflaterOutputStream out = _compression ? new DeflaterOutputStream(baos) : null;
-                 ObjectOutputStream oos = new ObjectOutputStream(_compression ? out : baos)) {
-                    oos.writeUTF(data.getContextPath());
-                    oos.writeUTF(data.getVhost());
+        if (!isStarted()) {
+            throw new IllegalStateException("Not started");
+        }
+        if (data == null) {
+            return;
+        }
+
+        final AtomicReference<Exception> exception = new AtomicReference<Exception>();
+
+        Runnable r = () -> {
+            try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                try (DeflaterOutputStream out = _compression ? new DeflaterOutputStream(baos) : null;
+                     ObjectOutputStream oos = new ObjectOutputStream(_compression ? out : baos)) {
                     oos.writeLong(data.getCreated());
                     oos.writeLong(data.getAccessed());
                     oos.writeLong(data.getLastAccessed());
                     oos.writeLong(data.getMaxInactiveMs());
                     SessionData.serializeAttributes(data, oos);
-            }
-            byte[] bytes = baos.toByteArray();
-            try (Jedis jedis = _pool.getResource()) {
-                if (_expirySec > 0) {
-                    jedis.setex(keyAsBytes(id), _expirySec, bytes);
-                } else {
-                    jedis.set(keyAsBytes(id), bytes);
                 }
+                byte[] bytes = baos.toByteArray();
+                try (Jedis jedis = _pool.getResource()) {
+                    if (_expirySec > 0) {
+                        jedis.setex(keyAsBytes(id), _expirySec, bytes);
+                    } else {
+                        jedis.set(keyAsBytes(id), bytes);
+                    }
+
+                }
+            } catch (Exception e) {
+                exception.set(e);
             }
+        };
+
+        _context.run(r);
+        if (exception.get() != null) {
+            throw exception.get();
         }
     }
 
@@ -336,9 +379,20 @@ public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDat
      */
     @Override
     public boolean delete(String id) throws Exception {
+        if (!isStarted()) {
+            throw new IllegalStateException("Not started");
+        }
         try (Jedis jedis = _pool.getResource()) {
             return jedis.del(keyAsBytes(id)) > 0;
         }
+    }
+
+    @Override
+    protected void doStart() throws Exception {
+        if (_context == null)
+            throw new IllegalStateException("No SessionContext");
+
+        super.doStart();
     }
 
 
