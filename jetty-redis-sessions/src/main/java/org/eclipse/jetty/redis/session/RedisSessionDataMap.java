@@ -18,18 +18,22 @@
 // based on https://github.com/eclipse/jetty.project/tree/e46459e8a8/jetty-memcached/jetty-memcached-sessions
 package org.eclipse.jetty.redis.session;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.ObjectOutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
+import java.util.zip.DeflaterOutputStream;
+import java.util.zip.InflaterInputStream;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocketFactory;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import org.eclipse.jetty.redis.session.transcoders.CachedData;
-import org.eclipse.jetty.redis.session.transcoders.SerializingTranscoder;
 import org.eclipse.jetty.server.session.SessionContext;
 import org.eclipse.jetty.server.session.SessionData;
 import org.eclipse.jetty.server.session.SessionDataMap;
+import org.eclipse.jetty.util.ClassLoadingObjectInputStream;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
@@ -48,7 +52,6 @@ public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDat
     public static final String DEFAULT_HOST = "localhost";
     public static final String DEFAULT_PORT = "6379";
     protected JedisPool _pool;
-    protected SerializingTranscoder transcoder = new SerializingTranscoder();
     protected int _expirySec = 0;
     protected String _host;
     protected int _port;
@@ -65,6 +68,7 @@ public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDat
     protected int _minIdle = GenericObjectPoolConfig.DEFAULT_MIN_IDLE;
     protected int _maxTotal = GenericObjectPoolConfig.DEFAULT_MAX_TOTAL;
     protected String _keyPrefix;
+    protected boolean _compression = false;
 
     /**
      * @param host address of memcache server
@@ -242,6 +246,14 @@ public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDat
         this._keyPrefix = keyPrefix;
     }
 
+    public boolean isCompression() {
+        return _compression;
+    }
+
+    public void setCompression(boolean compression) {
+        this._compression = compression;
+    }
+
     /**
      * @see SessionDataMap#initialize(SessionContext)
      */
@@ -267,11 +279,19 @@ public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDat
         if (bytes == null || bytes.length < 4) {
             return null;
         }
-        int flag = (bytes[0] & 0xff) << 24
-                | (bytes[1] & 0xff) << 16
-                | (bytes[2] & 0xff) << 8
-                | (bytes[3] & 0xff);
-        return (SessionData) transcoder.decode(new CachedData(flag, Arrays.copyOfRange(bytes, 4, bytes.length)));
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+             InputStream in = _compression ? new InflaterInputStream(bais) : null;
+             ClassLoadingObjectInputStream ois = new ClassLoadingObjectInputStream(_compression ? in : bais);){
+            String contextPath = ois.readUTF();
+            String vhost = ois.readUTF();
+            long created = ois.readLong();
+            long accessed = ois.readLong();
+            long lastAccessed = ois.readLong();
+            long maxIdle = ois.readLong();
+            SessionData data = new SessionData(id, contextPath, vhost, created, accessed, lastAccessed, maxIdle);
+            SessionData.deserializeAttributes(data, ois);
+            return data;
+        }
     }
 
     private byte[] keyAsBytes(String id) {
@@ -288,18 +308,24 @@ public class RedisSessionDataMap extends AbstractLifeCycle implements SessionDat
      */
     @Override
     public void store(String id, SessionData data) throws Exception {
-        CachedData cachedData = transcoder.encode(data);
-        byte[] bytes = new byte[cachedData.getData().length + 4];
-        bytes[0] = (byte) ((cachedData.getFlag() >> 24) & 0xff);
-        bytes[1] = (byte) ((cachedData.getFlag() >> 16) & 0xff);
-        bytes[2] = (byte) ((cachedData.getFlag() >> 8) & 0xff);
-        bytes[3] = (byte) (cachedData.getFlag() & 0xff);
-        System.arraycopy(cachedData.getData(), 0, bytes, 4, cachedData.getData().length);
-        try (Jedis jedis = _pool.getResource()) {
-            if (_expirySec > 0) {
-                jedis.setex(keyAsBytes(id), _expirySec, bytes);
-            } else {
-                jedis.set(keyAsBytes(id), bytes);
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            try (DeflaterOutputStream out = _compression ? new DeflaterOutputStream(baos) : null;
+                 ObjectOutputStream oos = new ObjectOutputStream(_compression ? out : baos)) {
+                    oos.writeUTF(data.getContextPath());
+                    oos.writeUTF(data.getVhost());
+                    oos.writeLong(data.getCreated());
+                    oos.writeLong(data.getAccessed());
+                    oos.writeLong(data.getLastAccessed());
+                    oos.writeLong(data.getMaxInactiveMs());
+                    SessionData.serializeAttributes(data, oos);
+            }
+            byte[] bytes = baos.toByteArray();
+            try (Jedis jedis = _pool.getResource()) {
+                if (_expirySec > 0) {
+                    jedis.setex(keyAsBytes(id), _expirySec, bytes);
+                } else {
+                    jedis.set(keyAsBytes(id), bytes);
+                }
             }
         }
     }

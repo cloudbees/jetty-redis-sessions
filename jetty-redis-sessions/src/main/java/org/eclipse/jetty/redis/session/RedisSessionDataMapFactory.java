@@ -48,6 +48,7 @@ public class RedisSessionDataMapFactory implements SessionDataMapFactory {
     protected int _minIdle = GenericObjectPoolConfig.DEFAULT_MIN_IDLE;
     protected int _maxTotal = GenericObjectPoolConfig.DEFAULT_MAX_TOTAL;
     protected String _keyPrefix;
+    protected boolean _compression = true;
 
     public int getExpirySec() {
         return _expiry;
@@ -199,6 +200,14 @@ public class RedisSessionDataMapFactory implements SessionDataMapFactory {
         this._keyPrefix = keyPrefix;
     }
 
+    public boolean isCompression() {
+        return _compression;
+    }
+
+    public void setCompression(boolean compression) {
+        this._compression = compression;
+    }
+
 
     /**
      * @see org.eclipse.jetty.server.session.SessionDataMapFactory#getSessionDataMap()
@@ -220,6 +229,7 @@ public class RedisSessionDataMapFactory implements SessionDataMapFactory {
         m.setMinIdle(_minIdle);
         m.setMaxTotal(_maxTotal);
         m.setKeyPrefix(_keyPrefix);
+        m.setCompression(_compression);
         return m;
     }
 
